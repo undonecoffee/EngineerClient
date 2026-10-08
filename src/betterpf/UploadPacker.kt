@@ -88,6 +88,7 @@ object UploadPacker {
     /** Ticks of mob and player lines a "cols" line holds; a stretch bigger than [COLS_MAX] is split. */
     private const val COLS_TICKS = 200
     private const val COLS_MAX = 100_000 // (the site takes lines up to 128 KB)
+    private const val NL = "\n" // never newLine(): on Windows that is "\r\n"
     private const val CAM_TOLERANCE = 0.05
     private const val CAM_GAP = 1.95
     private const val COVER_MARGIN = 600
@@ -382,7 +383,7 @@ object UploadPacker {
                 var kept = (if (drop.isEmpty()) line else keep(line, drop) ?: return).let { fold(it, scan) ?: return }
                 if (kept.startsWith("{\"k\":\"cam\"")) kept = thin(kept, scan.camKeep.getOrNull(camLine++)) ?: return
                 // (the world's lines carry ticks, but aren't in the timeline: none of them start a stretch)
-                if (!timed) { if (players?.keepsWorld(kept) != false) { w.write(kept); w.newLine() }; return }
+                if (!timed) { if (players?.keepsWorld(kept) != false) { w.write(kept); w.write(NL) }; return }
                 if (players == null) cols.put(kept) else players.put(kept, cols::put)
             }
             // The first line (meta), the layout and the world's lines; then everything else.
@@ -390,10 +391,12 @@ object UploadPacker {
                 var first = true
                 for (line in r.lineSequence()) {
                     if (first) {
-                        first = false; put(line, timed = false); scan.layout?.let { w.write(it); w.newLine() }
+                        first = false; put(line, timed = false); scan.layout?.let { w.write(it); w.write(NL) }
                         for (l in scan.world) put(l, timed = false)
                         continue
                     }
+                    // A line cut short (a crash part way through writing it) would get the whole run refused.
+                    if (!line.startsWith("{") || !line.endsWith("}")) continue
                     val kind = kindOf(line)
                     if (kind == "chat" && privateChatLine(line)) continue
                     if (kind !in WORLD) put(line)
@@ -466,7 +469,7 @@ object UploadPacker {
             val head = HEAD.find(line)
             val t = head?.groupValues?.get(2)?.toInt()
             if (t != null && t >= end) { flush(); end = (t / COLS_TICKS + 1) * COLS_TICKS }
-            if (end < 0) { w.write(line); w.newLine(); return }
+            if (end < 0) { w.write(line); w.write(NL); return }
             val list = items[head?.groupValues?.get(1)]
             if (list != null && t != null) list += Item(t, JsonParser.parseString(line).asJsonObject.getAsJsonArray("d"), others.size, ord++)
             else others += line
@@ -476,14 +479,14 @@ object UploadPacker {
 
         private fun flush() {
             for ((kind, list) in items) if (list.isNotEmpty()) { write(kind, list); list.clear() }
-            for (l in others) { w.write(l); w.newLine() }
+            for (l in others) { w.write(l); w.write(NL) }
             others.clear(); ord = 0
         }
 
         private fun write(kind: String, list: List<Item>) {
             val line = encode(kind, list)
             if (line.length > COLS_MAX && list.size > 1) { write(kind, list.subList(0, list.size / 2)); write(kind, list.subList(list.size / 2, list.size)); return }
-            w.write(line); w.newLine()
+            w.write(line); w.write(NL)
         }
 
         /** One "cols" line: the lines' ticks, places and order, then per mob/player the lines it's in, its rows' lengths and its columns. */
