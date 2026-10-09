@@ -37,7 +37,6 @@ object P3Plan {
         // On S2's device (Lights): the EE2 player does it early and waits there for the leaps.
         EarlyEnter("ee2", "EE2", 2, Vec3(60.6, 132.0, 139.0)),
         EarlyEnter("ee3", "EE3", 3, Vec3(1.9, 109.0, 104.6)),
-        EarlyEnter("ee4", "EE4", 4, Vec3(41.3, 109.0, 32.6)),
         // Just outside the core in S4; then inside it.
         EarlyEnter("core", "Core", 5, Vec3(54.5, 115.06, 50.5)),
         EarlyEnter("recore", "Recore", 6, Vec3(54.4, 115.0, 57.6)),
@@ -64,6 +63,22 @@ object P3Plan {
     val leapOrder = ArrayList<DungeonClass>()
     /** Classes whose bot plays your best run as that class (P3 from S1, when one is saved: [GhostStore]). */
     val ghosts = LinkedHashSet<String>()
+
+    /**
+     * Spots set in the Roles menu (where, and which way you or the bot face) for one skill and one class of yours ("1/MAGE/spawn", "1/MAGE/ee3"...): your P3
+     * spawn ("spawn") and each early enter's spot ([EarlyEnter.key]), whoever does it.
+     */
+    private var custom: HashMap<String, Spots.Spot>? = HashMap()
+    /** [custom], made if it isn't there (a hotswapped game starts it null). */
+    private fun spots() = custom ?: HashMap<String, Spots.Spot>().also { custom = it }
+    private fun customKey(key: String) = "$skill/${P3Sim.myClass?.name}/$key"
+
+    fun customSpot(key: String): Spots.Spot? = spots()[customKey(key)]
+    /** null: back to the default. */
+    fun setCustomSpot(key: String, p: Spots.Spot?) { if (p == null) spots().remove(customKey(key)) else spots()[customKey(key)] = p; save() }
+
+    /** Where [e] is stood on with this skill and class: the one set for them, else the preset's, else the Early Enters tab's. */
+    fun eeSpot(e: EarlyEnter): Spots.Spot = customSpot(e.key) ?: (preset().spots[e.key] ?: e.spot).let { Spots.Spot(e.label, it.x, it.y, it.z, e.yaw, e.pitch) }
 
     fun ghostOn(c: DungeonClass) = c.name in ghosts
     fun toggleGhost(c: DungeonClass) { if (!ghosts.remove(c.name)) ghosts += c.name; save() }
@@ -152,6 +167,8 @@ object P3Plan {
         val spots: Map<String, List<Double>>? = null,
         val helper: Boolean? = null,
         val ghosts: List<String>? = null,
+        /** [custom]: key -> [x, y, z, yaw, pitch]. */
+        val custom: Map<String, List<Double>>? = null,
     )
 
     private val gson = GsonBuilder().setPrettyPrinting().create()
@@ -173,6 +190,7 @@ object P3Plan {
             s.waitForYou?.let { waitForYou = it }
             s.helper?.let { helper = it }
             s.ghosts?.let { ghosts.clear(); ghosts += it }
+            s.custom?.forEach { (k, v) -> if (v.size >= 5) spots()[k] = Spots.Spot(k, v[0], v[1], v[2], v[3].toFloat(), v[4].toFloat()) }
             s.leapGap?.let { leapGap = it }
             s.odinSort?.let { odinSort = it }
             s.leapOrder?.let { names -> leapOrder.clear(); leapOrder += names.mapNotNull { n -> Party.CLASSES.firstOrNull { it.name == n } } }
@@ -190,7 +208,8 @@ object P3Plan {
     fun save() {
         EngineerClient.safely("p3sim plan save") {
             val s = Saved(skill, mine.toList(), mineFor, botMin, botMax, waitForYou, leapGap, botOrder().let { leapOrder.map { it.name } }, odinSort,
-                earlyEnters.associate { it.key to listOf(it.spot.x, it.spot.y, it.spot.z, it.yaw.toDouble(), it.pitch.toDouble()) }, helper, ghosts.toList())
+                earlyEnters.associate { it.key to listOf(it.spot.x, it.spot.y, it.spot.z, it.yaw.toDouble(), it.pitch.toDouble()) }, helper, ghosts.toList(),
+                spots().mapValues { (_, p) -> listOf(p.x, p.y, p.z, p.yaw.toDouble(), p.pitch.toDouble()) })
             file.parentFile.mkdirs()
             // A backup of the file before this session's first save, should a save ever lose something.
             if (!backedUp && file.exists()) { backedUp = true; file.copyTo(File(file.path + ".bak"), overwrite = true) }
