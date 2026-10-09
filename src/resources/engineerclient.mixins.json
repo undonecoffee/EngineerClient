@@ -39,8 +39,6 @@
     "PauseMenuMixin",
     "SkipLoadingScreenMixin",
     "SwingSpeedMixin",
-    "PovLevelExtractorMixin",
-    "PovLevelRendererMixin",
     "P3SimWorldMixin",
     "P3SimLevelInfoMixin",
     "UseItemRotSimMixin",

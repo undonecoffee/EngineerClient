@@ -45,7 +45,7 @@ object EngineerClient : ClientModInitializer {
     private var windowKept = false
 
     /**
-     * Fullscreen game windows minimize themselves when they lose focus (Alt-Tab, a click on another
+     * Fullscreen GLFW windows minimize themselves when they lose focus (Alt-Tab, a click on another
      * screen), and on KDE Wayland a window minimized that way comes back blank: the game never hears
      * it was restored, so it keeps skipping its frames. Auto-minimize off, and a window that is
      * already stuck minimized is restored.
@@ -56,8 +56,9 @@ object EngineerClient : ClientModInitializer {
     /**
      * Exclusive fullscreen (a video mode change) on Wayland goes through Xwayland, and once the game
      * loses focus KDE never shows its window again, focused or not. Borderless fullscreen looks the
-     * same and doesn't break, so on Wayland exclusive is turned off. Since 26.3 the option applies
-     * live, so a window in exclusive fullscreen goes straight to borderless.
+     * same and doesn't break, so on Wayland exclusive is turned off. The window took its mode at
+     * startup and keeps it until a restart, so a window in it now goes windowed (F11 after a restart
+     * is borderless).
      */
     private fun noExclusiveFullscreen() {
         exclusiveChecked = true
@@ -65,6 +66,10 @@ object EngineerClient : ClientModInitializer {
         val o = mc.options
         if (!o.exclusiveFullscreen().get()) return
         o.exclusiveFullscreen().set(false)
+        if (mc.window.isFullscreen) {
+            mc.window.toggleFullScreen()
+            o.fullscreen().set(false)
+        }
         o.save()
         logger.info("[ec] exclusive fullscreen off (it breaks on Wayland once the game loses focus)")
     }
@@ -72,9 +77,8 @@ object EngineerClient : ClientModInitializer {
     private fun keepWindowUp() {
         val h = mc.window.handle()
         if (h == 0L) return
-        // 26.3 windows are SDL3: auto-minimize is a hint, read at every focus loss.
-        org.lwjgl.sdl.SDLHints.SDL_SetHint(org.lwjgl.sdl.SDLHints.SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS, "0")
-        if ((org.lwjgl.sdl.SDLVideo.SDL_GetWindowFlags(h) and org.lwjgl.sdl.SDLVideo.SDL_WINDOW_MINIMIZED) != 0L) org.lwjgl.sdl.SDLVideo.SDL_RestoreWindow(h)
+        org.lwjgl.glfw.GLFW.glfwSetWindowAttrib(h, org.lwjgl.glfw.GLFW.GLFW_AUTO_ICONIFY, org.lwjgl.glfw.GLFW.GLFW_FALSE)
+        if (org.lwjgl.glfw.GLFW.glfwGetWindowAttrib(h, org.lwjgl.glfw.GLFW.GLFW_ICONIFIED) == org.lwjgl.glfw.GLFW.GLFW_TRUE) org.lwjgl.glfw.GLFW.glfwRestoreWindow(h)
         windowKept = true
     }
 
@@ -84,7 +88,7 @@ object EngineerClient : ClientModInitializer {
      */
     val MODULES: List<com.odtheking.odin.features.Module> by lazy {
         listOf(
-            PovPreviews, com.engineerclient.p3sim.P3Sim, BetterPF, SimonSaysPractice, BrWaypoints2, com.engineerclient.waypoints.PositionalMessages, AgroLeaderboard, DungeonSplits,
+            PovPreviews, com.engineerclient.p3sim.P3Sim, BetterPF, SimonSaysPractice, BrWaypoints2, AgroLeaderboard, DungeonSplits,
             P3Rotation, com.engineerclient.practice.TermInfo, StormPhase, ChatHider, RandomStuff, com.engineerclient.misc.HealthMana, com.engineerclient.pf.HubNametags, com.engineerclient.misc.Timers,
         )
     }
@@ -162,11 +166,11 @@ object EngineerClient : ClientModInitializer {
     }
 
     fun chat(msg: String) {
-        mc.schedule { mc.gui.hud.chat.addClientSystemMessage(Component.literal(msg)) }
+        mc.schedule { mc.gui.chat.addClientSystemMessage(Component.literal(msg)) }
     }
 
     fun chat(msg: Component) {
-        mc.schedule { mc.gui.hud.chat.addClientSystemMessage(msg) }
+        mc.schedule { mc.gui.chat.addClientSystemMessage(msg) }
     }
 
     /** What every line the mod says in chat starts with. */
@@ -214,8 +218,6 @@ object EngineerClient : ClientModInitializer {
         ClientCommandRegistrationCallback.EVENT.register { dispatcher, _ ->
             // /betterpf: the link to all your uploaded runs, private ones included.
             for (name in listOf("betterpf", "BetterPF")) dispatcher.register(literal(name).executes { BetterPF.myRunsLink(); 1 })
-            // /posmsg: Positional Messages (removed from Odin in 0.3.6) is provided here.
-            com.engineerclient.waypoints.PositionalMessages.registerCommand(dispatcher)
             // /termsim inf: next to Odin's /termsim (Brigadier merges the trees; the literal wins over its arguments).
             dispatcher.register(literal("termsim").then(literal("inf").executes { mc.schedule { com.engineerclient.practice.InfNumbersSim.open(0L) }; 1 }))
             // Same tree registered under the formal name (both casings, since Brigadier
@@ -283,8 +285,3 @@ object EngineerClient : ClientModInitializer {
         }
     }
 }
-
-/** A selector's place in its option list (Odin's selectors hold the enum constant); setting it wraps around. */
-var <E : Enum<E>> com.odtheking.odin.clickgui.settings.impl.SelectorSetting<E>.index: Int
-    get() = options.indexOf(value)
-    set(i) { value = options[Math.floorMod(i, options.size)] }
