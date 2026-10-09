@@ -17,12 +17,15 @@ object ConfigMigration {
      *  - the health and mana settings moved from Random Stuff to Health & Mana (on if Random Stuff
      *    was); Player Display's Health/Mana Bar HUD settings found in Odin's own config are copied
      *    to Health & Mana, which provides those HUDs;
+     *  - the Boss Enter Timer (as Clear Countdown), Portal Text and Portal Chime moved from Random
+     *    Stuff to Timers (on if Random Stuff was);
      *  - Sub Splits' detail levels: "Extreme" is "Debug", and "Off" is the HUD switched off;
      *  - a former engineerClient Splits HUD that was on becomes Odin's Splits in the Engineer
      *    Splits look (written into Odin's config, read once the look's settings exist - see
      *    OdinSplitsLook.install);
      *  - Positional Messages was removed from Odin in 0.3.6 and is provided here: Odin's module
-     *    (on/off, settings and the saved boxes) is copied over as it was.
+     *    (on/off, settings and the saved boxes) is copied over as it was;
+     *  - POV Previews' Show In choice is its matching Only In checkbox (Everywhere: none ticked).
      * Each only happens while its target is still missing, so it runs once. [odinDir] is
      * config/odin. True if the file was rewritten.
      */
@@ -55,6 +58,15 @@ object ConfigMigration {
             changed = true
         }
 
+        module(modules, "Random Stuff")?.let { rs ->
+            val from = settings(rs)
+            val moved = TIMERS_KEYS.filterKeys { from.has(it) }
+            if (moved.isEmpty() || module(modules, "Timers") != null) return@let
+            val to = settings(ensure("Timers").also { it.addProperty("enabled", rs["enabled"]?.asBoolean ?: true) })
+            for ((old, new) in moved) to.add(new, from.remove(old))
+            changed = true
+        }
+
         // Sub Splits' detail levels lost "Off" and renamed "Extreme" to "Debug". Off was a way of
         // hiding the HUD, so it becomes the HUD switched off (the level itself back to Compact).
         module(modules, "Sub Splits")?.let(::settings)?.let { sub ->
@@ -69,6 +81,14 @@ object ConfigMigration {
                     }
                 }
             }
+        }
+
+        // POV Previews' one Show In choice became a checkbox per place; the old key goes, so this runs once.
+        module(modules, "POV Previews")?.let(::settings)?.let { pov ->
+            val old = pov.remove("Show In") ?: return@let
+            changed = true
+            val key = POV_SHOW_IN[old.takeIf { it.isJsonPrimitive }?.asString] ?: return@let
+            if (!pov.has(key)) pov.addProperty(key, true)
         }
 
         if (Files.exists(odinFile)) {
@@ -100,9 +120,15 @@ object ConfigMigration {
         return changed
     }
 
+    private val TIMERS_KEYS = mapOf("Boss Enter Timer" to "Clear Countdown", "Portal Text" to "Portal Text", "Portal Chime" to "Portal Chime")
+
     private val HEALTH_MANA_KEYS = listOf(
         "Hide Health/Mana Above %", "Threshold", "Health Bar HUD", "Health Bar Width", "Health Bar Height",
         "Mana Bar HUD", "Mana Bar Width", "Mana Bar Height",
+    )
+
+    private val POV_SHOW_IN = mapOf(
+        "ONLY_IN_BLOOD_RUSH" to "Only In Blood Rush", "ONLY_IN_BOSS" to "Only In Boss", "ONLY_IN_GOLDOR" to "Only In Goldor",
     )
 
     private fun module(list: JsonArray, name: String): JsonObject? =
