@@ -1,5 +1,3 @@
-# EngineerClient
-
 | Minecraft | Download |
 |---|---|
 | **26.3** | **[EngineerClient-26.3.jar](https://github.com/undonecoffee/EngineerClient/releases/download/release-main/EngineerClient-26.3.jar)** |
