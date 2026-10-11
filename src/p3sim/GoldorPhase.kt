@@ -122,11 +122,14 @@ class GoldorPhase(val from: Int, val arrived: Boolean = false) : Fight.Phase("P3
             sectionEnd[s] = startN
         }
         if (from >= 2) Blocks.finish("p3start")
-        // Practice: the rest of the party's part of this section done, its gate too unless it's yours.
+        // Practice: the rest of the party's part done, in this section and on to the practice's last (a custom one can
+        // run across several), the gates too unless they're yours.
         if (practice) {
             val jobs = Practice.practiceJobs()
-            stations.filter { it.section == from && it.id !in jobs }.forEach { doneAlready(it) }
-            if (from <= 3 && "gate $from" !in jobs) { gateDown[from] = true; Blocks.finish("gate$from${from + 1}") }
+            for (s in from..Practice.lastSection().coerceIn(from, 4)) {
+                stations.filter { it.section == s && it.id !in jobs }.forEach { doneAlready(it) }
+                if (s <= 3 && "gate $s" !in jobs) { gateDown[s] = true; Blocks.finish("gate$s${s + 1}") }
+            }
         }
         section = from.coerceAtMost(5)
         sectionStart[section] = startN
@@ -389,9 +392,13 @@ class GoldorPhase(val from: Int, val arrived: Boolean = false) : Fight.Phase("P3
     private fun openDoor(s: Int) {
         if (doorOpen[s]) return
         doorOpen[s] = true
-        // Blocks change 1 tick after the chat line (gates, doors and the core alike).
-        if (!practice) {
-            Blocks.play("door$s", delay = 1)
+        // Blocks change 1 tick after the chat line (gates, doors and the core alike). Practice: only a door on the
+        // way (before its last section) opens, and never takes the gate's blocks with it (they stay in practice).
+        if (!practice || s < Practice.lastSection()) {
+            val gate = if (!practice || s > 3) emptySet() else
+                (Blocks.anim("gate$s${s + 1}")?.frames?.map { it.pos }.orEmpty() +
+                    BlockPos.betweenClosedStream(GATE_BOXES[s].inflate(0.5)).map { it.immutable() }.toList()).toSet()
+            Blocks.play("door$s", exclude = gate, delay = 1)
             if (s == 1) Blocks.play("ss_s1done", delay = 1)
         }
         // His section line is queued with the door (the later of the last completion and the gate).
@@ -421,8 +428,8 @@ class GoldorPhase(val from: Int, val arrived: Boolean = false) : Fight.Phase("P3
         // The progress pling comes with this line too.
         Sim.sound(SoundEvents.NOTE_BLOCK_PLING, 8f, 4.047619f)
         SimItems.gatePuffs(GATE_CENTRES[s], GATE_BOXES[s])
-        // Practice: only your own blowing it takes it down (not the 5 s auto gate).
-        if (!practice || by == Sim.me) Blocks.play("gate$s${s + 1}", delay = 1)
+        // Practice: the gate's blocks stay, even when you blow it (it still counts as blown).
+        if (!practice) Blocks.play("gate$s${s + 1}", delay = 1)
         if (sectionEnd[s] >= 0) openDoor(s)
         return true
     }

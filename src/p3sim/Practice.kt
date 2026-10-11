@@ -18,9 +18,9 @@ import java.util.Locale
  * into the next section are the tasks, each timed from the start; the last one's time is the
  * practice's, large on screen (the Practice Time HUD) and in chat with your best.
  *
- * Custom practice: your own start position (its section: where it is), the jobs of that section you
- * pick (your role's to begin with) and checkpoints to reach in order (within 1 block across, the same
- * height), all timed the same way. Saved in config/engineerclient/p3sim-practice.json.
+ * Custom practice (leap waypoints: where the leap menu's slots 1-4 land in it): your own start position, the jobs you pick (any sections', so it can run across
+ * several; it starts in the earliest of them and the start's) and checkpoints to reach in order
+ * (within 1 block across, the same height), all timed the same way. Saved in config/engineerclient/p3sim-practice.json.
  *
  * Server thread, except what the HUDs and the menu read ([mode], [tasks], [ticks], [endTicks], the custom setup).
  */
@@ -92,10 +92,12 @@ object Practice {
 
     /** Starts the custom practice (again). */
     fun startCustom() {
-        val s = customSection
         val at = customStart
-        if (at == null || s !in 1..4) { Sim.note("Set the custom practice's §fStart Position§7 first (Practice tab)."); return }
-        launch(Setup("Custom", s, at, P3Plan.jobsIn(s).filter { it in customJobs }, checkpoints.toList()))
+        if (at == null || customSection !in 1..4) { Sim.note("Set the custom practice's §fStart Position§7 first (Practice tab)."); return }
+        // The jobs in plan order, section by section; the fight starts at the earliest section (the start's or a job's).
+        val jobs = (1..4).flatMap { s -> P3Plan.jobsIn(s).filter { it in customJobs } }
+        val s = (jobs.map { sectionOf(it) }.filter { it in 1..4 } + customSection).min()
+        launch(Setup("Custom", s, at, jobs, checkpoints.toList()))
     }
 
     private fun launch(set: Setup) { setup = set; launch(set.name, set.section) }
@@ -132,12 +134,15 @@ object Practice {
     /** What's left to do in this practice's section (the rest is done at the start). */
     fun practiceJobs(): List<String> = setup?.jobs ?: jobs(section)
 
-    private fun sectionOf(job: String) = job.removePrefix("gate ").toIntOrNull() ?: job.removePrefix("S").substringBefore(' ').toIntOrNull() ?: 0
+    /** The last section with a job of this practice (a custom one can run across several): the ones before it end as usual. */
+    fun lastSection(): Int = (practiceJobs().map { sectionOf(it) }.filter { it in 1..4 } + section).max()
+
+    fun sectionOf(job: String) = job.removePrefix("gate ").toIntOrNull() ?: job.removePrefix("S").substringBefore(' ').toIntOrNull() ?: 0
 
     /** Where the practice puts you: the custom start; your spawn (S1), the early enter into it, else its start. */
     fun startSpot(): Spots.Spot = setup?.start ?: when (val s = section) {
         1 -> P3Plan.customSpot("spawn") ?: Spots.p3Start(1)
-        else -> P3Plan.earlyEnters.firstOrNull { it.into == s }?.let { P3Plan.eeSpot(it) } ?: Spots.p3Start(s)
+        else -> P3Plan.earlyEnters.firstOrNull { it.into == s && (s != 4 || it.on) }?.let { P3Plan.eeSpot(it) } ?: Spots.p3Start(s)
     }
 
     /** The start timer (the menu's slider): seconds you stand placed before anything is up and the clock runs. */
@@ -272,35 +277,47 @@ object Practice {
     /** Your role's jobs in section [s], for a custom practice there. */
     fun roleJobs(s: Int) = P3Plan.jobsIn(s).filter { P3Plan.isMine(it) }
 
-    /** The jobs the custom practice's row shows for section [s]: the ones picked there, else your role's. */
-    fun customJobsIn(s: Int): Set<String> = if (s == customSection) customJobs else roleJobs(s).toSet()
+    /** The custom practice's jobs picked in section [s]. */
+    fun customJobsIn(s: Int): Set<String> = P3Plan.jobsIn(s).filter { it in customJobs }.toSet()
 
-    /**
-     * The start where you stand; its section is where it is (or the nearest). Jobs already picked for that
-     * section stay; another section's start takes your role's jobs there. Returns the section.
-     */
+    /** The start where you stand; its section is where it is (or the nearest). Nothing picked yet: your role's jobs there. Returns the section. */
     fun setStart(spot: Spots.Spot): Int {
         val s = sectionAt(spot.x, spot.y, spot.z)
-        if (s != customSection) { customSection = s; customJobs.clear(); customJobs += roleJobs(s) }
+        customSection = s
+        if (customJobs.isEmpty()) customJobs += roleJobs(s)
         customStart = spot
         save()
         return s
     }
 
-    /** Picks or drops [job] of section [s] (moving the custom practice's jobs to [s], from your role's, first). */
-    fun toggleJob(job: String, s: Int) {
-        if (s != customSection) { customSection = s; customJobs.clear(); customJobs += roleJobs(s); if (customStart != null && sectionAt(customStart!!.x, customStart!!.y, customStart!!.z) != s) customStart = null }
+    /** Picks or drops [job] (any section's; the others' picks stay). */
+    fun toggleJob(job: String) {
         if (!customJobs.remove(job)) customJobs += job
         save()
     }
 
     /** No custom practice: start, jobs and checkpoints gone. */
-    fun clearCustom() { customStart = null; customSection = 0; customJobs.clear(); checkpoints.clear(); save() }
+    fun clearCustom() { customStart = null; customSection = 0; customJobs.clear(); checkpoints.clear(); leapWaypoints.clear(); save() }
+
+    /** Leap waypoints: the leap menu's slots 1-4 (top left, top right, bottom left, bottom right) land here in a custom practice. */
+    val leapWaypoints = ArrayList<Spots.Spot>()
+
+    /** The next leap slot (1-4) gets [spot]; 0: all four are set already. */
+    fun addLeapWaypoint(spot: Spots.Spot): Int {
+        if (leapWaypoints.size >= 4) return 0
+        leapWaypoints += spot; save()
+        return leapWaypoints.size
+    }
+
+    fun removeLeapWaypoint() { if (leapWaypoints.isNotEmpty()) leapWaypoints.removeAt(leapWaypoints.size - 1); save() }
+
+    /** Where leap menu slot [i] (0-3) lands in the custom practice running, null: as usual. */
+    fun leapWaypoint(i: Int): Spots.Spot? = if (setup?.name == "Custom") leapWaypoints.getOrNull(i) else null
 
     fun addCheckpoint(spot: Spots.Spot) { checkpoints += spot; save() }
     fun removeCheckpoint() { if (checkpoints.isNotEmpty()) checkpoints.removeAt(checkpoints.size - 1); save() }
 
-    private class Saved(val start: List<Double>? = null, val section: Int? = null, val jobs: List<String>? = null, val checkpoints: List<List<Double>>? = null, val startDelay: Double? = null)
+    private class Saved(val start: List<Double>? = null, val section: Int? = null, val jobs: List<String>? = null, val checkpoints: List<List<Double>>? = null, val startDelay: Double? = null, val leaps: List<List<Double>>? = null)
 
     private val gson = GsonBuilder().setPrettyPrinting().create()
     private val file get() = File(Minecraft.getInstance().gameDirectory, "config/engineerclient/p3sim-practice.json")
@@ -317,13 +334,14 @@ object Practice {
             customJobs.clear(); s.jobs?.let { customJobs += it }
             startDelay = s.startDelay ?: 0.0
             checkpoints.clear(); s.checkpoints?.forEachIndexed { i, v -> if (v.size >= 5) checkpoints += spot("Checkpoint ${i + 1}", v) }
+            leapWaypoints.clear(); s.leaps?.forEachIndexed { i, v -> if (v.size >= 5 && i < 4) leapWaypoints += spot("Leap ${i + 1}", v) }
         }
     }
 
     private fun save() {
         EngineerClient.safely("p3sim practice save") {
             file.parentFile.mkdirs()
-            file.writeText(gson.toJson(Saved(customStart?.let { list(it) }, customSection, customJobs.toList(), checkpoints.map { list(it) }, startDelay)))
+            file.writeText(gson.toJson(Saved(customStart?.let { list(it) }, customSection, customJobs.toList(), checkpoints.map { list(it) }, startDelay, leapWaypoints.map { list(it) })))
         }
     }
 }

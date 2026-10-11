@@ -67,7 +67,7 @@ class SimRestartScreen : Screen(Component.literal("P3 Sim")) {
             Triple(0, "Normal PF", "The bots play at a normal party finder pace: P3 in about 34 s."),
             Triple(1, "Quality PF", "The bots play at a quality party finder pace: P3 in about 28 s."),
             Triple(2, "Optimal PF", "The bots play at an optimal party finder pace: P3 in about 22 s."),
-            Triple(P3Plan.RANDOM + 1, "Theoretical", "The bots play a route planner's roles and times: P3 in about 18 s."),
+            Triple(P3Plan.THEORETICAL, "Theoretical", "The fastest terms, in theory: a far EE2, a high EE3, an EE4 by the core."),
         )
         for ((k, s) in skills.withIndex()) {
             val (i, name, about) = s
@@ -186,7 +186,7 @@ class SimRestartScreen : Screen(Component.literal("P3 Sim")) {
                 "Restart P3 puts you where you stand now, facing as you are (as $me in $skill). Now: ${spawn?.let { at(it) } ?: "your first S1 job's spot"}.") { here()?.let { P3Plan.setCustomSpot("spawn", it) } },
             change("Default", 50, "Back to the default spawn (Normal PF's, as $me).") { P3Plan.setCustomSpot("spawn", null) },
         ))
-        row(listOf<LayoutElement>(label("§eEarly enters", LABEL_W, "Where each early enter stands, whoever does it.")) + P3Plan.earlyEnters.map { ee ->
+        row(listOf<LayoutElement>(label("§eEarly enters", LABEL_W, "Where each early enter stands, whoever does it.")) + P3Plan.earlyEnters.filter { it.into != 4 || it.on }.map { ee ->
             val who = ee.owner?.let { if (ee.byYou) "you" else "the ${Roles.label(it)} bot" } ?: "nobody in $skill"
             change(if (P3Plan.hasCustomSpot(ee.key)) "§a${ee.label}" else ee.label, 48,
                 "${ee.label} (${who}) stands where you stand now, facing as you are (as $me in $skill). Now: ${at(P3Plan.eeSpot(ee))}.") { here()?.let { P3Plan.setCustomSpot(ee.key, it) } }
@@ -392,7 +392,7 @@ class SimRestartScreen : Screen(Component.literal("P3 Sim")) {
                 })
             }
         }
-        cols += stack("§eEarly Enters", 70, "The early-enter spots (set in Advanced).", P3Plan.earlyEnters.map { ee ->
+        cols += stack("§eEarly Enters", 70, "The early-enter spots (set in Advanced).", P3Plan.earlyEnters.filter { it.into != 4 || it.on }.map { ee ->
             val who = ee.owner?.let { if (ee.byYou) "yours" else "the ${Roles.label(it)}'s" } ?: "nobody's in this skill"
             val s = P3Plan.eeSpot(ee)
             act(ee.label, 70, "To the ${ee.label} spot (${who}): ${xyz(s.x, s.y, s.z)}. Set it in Advanced.") { tp(s.x, s.y, s.z, s.yaw, s.pitch) }
@@ -416,8 +416,8 @@ class SimRestartScreen : Screen(Component.literal("P3 Sim")) {
         // Custom: your start, the section's jobs you pick, checkpoints in order.
         val start = Practice.customStart
         val cps = Practice.checkpoints.size
-        // The jobs: the start's section once it's set, else the one you're in now.
-        val sec = if (start != null) Practice.customSection else mc.player?.let { Practice.sectionAt(it.x, it.y, it.z) } ?: 1
+        // The jobs: always the section you're in now (picks from other sections stay).
+        val sec = mc.player?.let { Practice.sectionAt(it.x, it.y, it.z) } ?: 1
         val picked = Practice.customJobsIn(sec)
         val cols = ArrayList<LayoutElement>()
         cols += stack("§eCustom", 100, "Your own practice: a start position (its section is where you stand), that section's jobs you pick and checkpoints to reach in order (within 1 block, the same height), all timed.", listOf(
@@ -426,22 +426,41 @@ class SimRestartScreen : Screen(Component.literal("P3 Sim")) {
                     (start?.let { "Now: S${Practice.customSection}, ${at(it)}." } ?: "Not set.")) {
                 here()?.let { h -> val n = Practice.setStart(h); EngineerClient.msg("§7Custom practice start: §fS$n§7, ${at(h)}.") }
             },
-            change(if (cps > 0) "§aCheckpoint §7($cps)" else "Checkpoint", 100,
-                "Click: a checkpoint where you stand (reached within 1 block across, at this exact height; in order). Now: $cps.") {
-                here()?.let { h -> Practice.addCheckpoint(h); EngineerClient.msg("§7Checkpoint §f${Practice.checkpoints.size}§7: ${at(h)}.") }
-            },
-            change("§cClear", 100, "Clears the custom practice: start, jobs and checkpoints.") { Practice.clearCustom(); EngineerClient.msg("§7Custom practice cleared.") },
+            ClickButton(100, if (cps > 0) "§aCheckpoint §7($cps)" else "Checkpoint",
+                tip("Left click: a checkpoint where you stand (reached within 1 block across, at this exact height; in order). Right click: removes the last one. Now: $cps."),
+                left = { here()?.let { h -> Practice.addCheckpoint(h); EngineerClient.msg("§7Checkpoint §f${Practice.checkpoints.size}§7: ${at(h)}.") }; rebuildWidgets() },
+                right = {
+                    EngineerClient.msg(if (Practice.checkpoints.isEmpty()) "§7No checkpoints to remove." else "§7Checkpoint §f${Practice.checkpoints.size}§7 removed.")
+                    Practice.removeCheckpoint(); rebuildWidgets()
+                }),
+            ClickButton(100, if (Practice.leapWaypoints.isNotEmpty()) "§aLeap Waypoint §7(${Practice.leapWaypoints.size}/4)" else "Leap Waypoint",
+                tip("Left click: where you stand becomes a leap's landing in the custom practice: the 1st the leap menu's top left, then top right, bottom left, bottom right. Right click: removes the last one. Now: ${Practice.leapWaypoints.size}/4."),
+                left = {
+                    here()?.let { h ->
+                        val n = Practice.addLeapWaypoint(h)
+                        EngineerClient.msg(if (n == 0) "§7All 4 leap waypoints are set (right click removes the last)." else "§7Leap waypoint §f$n§7 (${QUADRANTS[n - 1]}): ${at(h)}.")
+                    }
+                    rebuildWidgets()
+                },
+                right = {
+                    val n = Practice.leapWaypoints.size
+                    EngineerClient.msg(if (n == 0) "§7No leap waypoints to remove." else "§7Leap waypoint §f$n§7 (${QUADRANTS[n - 1]}) removed.")
+                    Practice.removeLeapWaypoint(); rebuildWidgets()
+                }),
+            change("§cClear", 100, "Clears the custom practice: start, jobs, checkpoints and leap waypoints.") { Practice.clearCustom(); EngineerClient.msg("§7Custom practice cleared.") },
             DelaySlider(100),
             act(if (start != null) "§aStart Custom" else "§8Start Custom", 100,
-                if (start != null) "Starts the custom practice: S$sec, from your start position, your jobs then the $cps checkpoint(s), timed." else "Set the Start Position first.") { server { Practice.startCustom() } }
+                if (start != null) "Starts the custom practice from your start position: your jobs (every section's picks) then the $cps checkpoint(s), timed." else "Set the Start Position first.") { server { Practice.startCustom() } }
                 .also { it.active = start != null },
         ))
+        val others = (1..4).filter { it != sec }.mapNotNull { s -> Practice.customJobsIn(s).takeIf { it.isNotEmpty() }?.let { j -> "S$s ${j.joinToString(" ") { COLUMNS[column(it)].first }}" } }.joinToString(", ")
         // The section's jobs, in the plan's column order, 6 a column.
         val jobs = P3Plan.jobsIn(sec).sortedBy { column(it) }
         jobs.chunked(6).forEachIndexed { i, part ->
-            cols += stack(if (i == 0) "§6§lS$sec" else "", JOB_W, if (start != null) "The custom practice's section: where its start is." else "The section you're in (the start's, once it's set).", part.map { job ->
+            cols += stack(if (i == 0) "§6§lS$sec" else "", JOB_W, "The section you're in: go to another to pick its jobs too (the picks of every section stay)." +
+                    (others.takeIf { it.isNotEmpty() }?.let { " Picked elsewhere: $it." } ?: ""), part.map { job ->
                 val on = job in picked
-                change((if (on) "§a" else "§8") + COLUMNS[column(job)].first, JOB_W, "${jobName(job)}: ${if (on) "yours to do in the custom practice" else "done at its start"}. Click: ${if (on) "done at the start" else "yours"}.") { Practice.toggleJob(job, sec) }
+                change((if (on) "§a" else "§8") + COLUMNS[column(job)].first, JOB_W, "${jobName(job)}: ${if (on) "yours to do in the custom practice" else "done at its start"}. Click: ${if (on) "done at the start" else "yours"}.") { Practice.toggleJob(job) }
             })
         }
         cols += label("", 16)
@@ -516,7 +535,12 @@ class SimRestartScreen : Screen(Component.literal("P3 Sim")) {
         override fun isValidClickButton(info: MouseButtonInfo) = info.button() == 0 || info.button() == 1
         override fun onClick(event: MouseButtonEvent, doubleClick: Boolean) {
             EngineerClient.logger.info("[ec] p3sim menu click: button ${event.button()} on ${message.string}")
-            if (event.button() == 1) right() else left()
+            // Right only when SDL has the right button down and not the left (a left click once came through as button 1 here).
+            val isRight = runCatching {
+                val s = org.lwjgl.sdl.SDLMouse.SDL_GetMouseState(null as java.nio.FloatBuffer?, null as java.nio.FloatBuffer?)
+                (s and 4) != 0 && (s and 1) == 0
+            }.getOrElse { event.button() == 1 }
+            if (isRight) right() else left()
         }
         override fun extractContents(g: net.minecraft.client.gui.GuiGraphicsExtractor, mouseX: Int, mouseY: Int, partial: Float) {
             extractDefaultSprite(g)
@@ -526,6 +550,7 @@ class SimRestartScreen : Screen(Component.literal("P3 Sim")) {
 
     private companion object {
         const val RESTART_W = 100
+        val QUADRANTS = listOf("top left", "top right", "bottom left", "bottom right")
         /** The plan's and Advanced's height (5 rows) plus a gap: where the Advanced button goes. */
         const val PANEL_H = 6 * 20 + 5 * 2 + 4
         const val GAP = 10
