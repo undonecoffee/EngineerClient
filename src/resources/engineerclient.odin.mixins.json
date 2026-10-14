@@ -4,9 +4,8 @@
   "package": "com.engineerclient.mixin.odin",
   "compatibilityLevel": "JAVA_21",
   "client": [
-    "ArrowsDeviceAimMixin",
     "BlockUpdateServerThreadMixin",
-    "ClickGuiSizeMixin",
+    "ClickGuiOpenMixin",
     "HudElementMixin",
     "InvincibilityHudMixin",
     "InvincibilityPhoenixMixin",
