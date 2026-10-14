@@ -3,7 +3,7 @@
   "id": "adm",
   "version": "${version}",
   "name": "ADM",
-  "description": "Advanced Dungeons Mod, an Odin addon for Hypixel SkyBlock dungeons: M7 phase-3 role rotation, leap-menu POV previews, the P3 Sim and Party Finder stats.",
+  "description": "Advanced Dungeons Mod, an Odin addon for Hypixel SkyBlock dungeons: M7 phase-3 role rotation, leap-menu POV previews, the P3 Sim Beta and Party Finder stats.",
   "authors": ["engineerandrew"],
   "license": "All-Rights-Reserved",
   "provides": ["engineerclient"],
