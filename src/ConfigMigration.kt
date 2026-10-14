@@ -9,19 +9,24 @@ import java.nio.file.Path
 
 /** Settings kept across renames and moves; see [run]. Pure file work, so it tests without the game. */
 object ConfigMigration {
+    /** The name this build keeps its settings and files under: engineerclient here, adm in the public build (promote.sh). */
+    private const val NAME = "adm"
+    private const val OLD = "engineerclient"
 
     /**
-     * Engineer Client is ADM now: its Odin settings file (config/odin/addons/engineerclient.json) is copied to
-     * adm.json, and its own folder (config/engineerclient: Better PF runs, P3 Sim saves, stats...) moved to
-     * config/adm, the first time ADM starts. Before anything reads either. [gameDir] is the game's folder.
+     * The public build is ADM, which was Engineer Client: there, Engineer Client's Odin settings file is copied to
+     * ADM's and its own folder under config (Better PF runs, P3 Sim saves, stats...) moved to ADM's, the first time
+     * it starts, before anything reads either. Nothing to do where the names are the same. [gameDir] is the game's
+     * folder.
      */
     fun rename(gameDir: Path) {
+        if (NAME == OLD) return
         val addons = gameDir.resolve("config").resolve("odin").resolve("addons")
-        val oldJson = addons.resolve("engineerclient.json")
-        val newJson = addons.resolve("adm.json")
+        val oldJson = addons.resolve("$OLD.json")
+        val newJson = addons.resolve("$NAME.json")
         if (Files.exists(oldJson) && !Files.exists(newJson)) Files.copy(oldJson, newJson)
-        val oldDir = gameDir.resolve("config").resolve("engineerclient")
-        val newDir = gameDir.resolve("config").resolve("adm")
+        val oldDir = gameDir.resolve("config").resolve(OLD)
+        val newDir = gameDir.resolve("config").resolve(NAME)
         if (Files.isDirectory(oldDir) && !Files.exists(newDir)) Files.move(oldDir, newDir)
     }
 
