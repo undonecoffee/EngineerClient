@@ -15,6 +15,7 @@ import com.odtheking.odin.events.core.on
 import com.odtheking.odin.events.core.onReceive
 import com.odtheking.odin.features.Category
 import com.odtheking.odin.features.Module
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents
 import net.fabricmc.fabric.api.client.screen.v1.ScreenMouseEvents
 import com.engineerclient.mixin.ContainerScreenAccessor
@@ -55,11 +56,11 @@ import java.util.zip.GZIPInputStream
  * replayed in the browser viewer (undonecoffee.com/betterpf).
  *
  * A session starts on every world load while this is on; [RunRecorder] keeps it only if the world
- * turns out to be a dungeon. Runs land in config/engineerclient/betterpf/runs/.
+ * turns out to be a dungeon. Runs land in config/adm/betterpf/runs/.
  */
 object BetterPF : Module(
     name = "Better PF",
-    category = Category.custom("Engineer Client", 860, 10),
+    category = Category.custom("ADM", 860, 10),
     description = "Records everything about each dungeon run (players, mobs, blocks, chat, rooms) and uploads it to the Better PF viewer (undonecoffee.com/betterpf), where it can be replayed in the browser. Runs here older than 30 days that the viewer has are deleted from this computer.",
     key = null,
 ) {
@@ -74,7 +75,7 @@ object BetterPF : Module(
      */
     private var ownerToken by StringSetting("Owner Token", "", 64, desc = "Identifies your uploads for /betterpf's link.", placeholder = "").hide()
 
-    private fun token(): String {
+    internal fun token(): String {
         if (ownerToken.length < 32) {
             val r = java.security.SecureRandom()
             ownerToken = (1..32).joinToString("") { "0123456789abcdef"[r.nextInt(16)].toString() }
@@ -87,6 +88,7 @@ object BetterPF : Module(
     /** For the recorder: Camera FPS. */
     val cameraFps: Int get() = cameraFpsSetting.toInt()
 
+    private val openOnline by ActionSetting("Open Online Page", desc = "Opens Better PF Online (undonecoffee.com/betterpf/online) in your browser, signed in as you: everyone online with Better PF and the party they are in, and your own looking-to-play settings. Each time signs the last browser out.") { OnlineLink.openPage() }
     private val uploadMissing by ActionSetting("Upload Missing Runs", desc = "Uploads every run saved on this computer that the viewer doesn't have yet - ones whose upload failed. One at a time, with progress in chat.") { uploadMissing() }
 
     const val SITE = "undonecoffee.com"
@@ -95,7 +97,7 @@ object BetterPF : Module(
     private val http: HttpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build()
 
     private var session: RunRecorder? = null
-    private val runsDir get() = EngineerClient.mc.gameDirectory.toPath().resolve("config").resolve("engineerclient").resolve("betterpf").resolve("runs")
+    private val runsDir get() = EngineerClient.mc.gameDirectory.toPath().resolve("config").resolve("adm").resolve("betterpf").resolve("runs")
 
     init {
         on<LevelEvent.Load> {
@@ -106,6 +108,11 @@ object BetterPF : Module(
                 session = RunRecorder(runsDir, true, ::upload)
             }
         }
+
+        // Better PF Online: your party, tracked from chat, and the link to the site.
+        on<TickEvent.End> { EngineerClient.safely("betterpf online") { PartyTracker.tick(); OnlineLink.tick() } }
+        ClientPlayConnectionEvents.JOIN.register { _, _, _ -> EngineerClient.safely("betterpf party join") { PartyTracker.onJoin() } }
+        ClientPlayConnectionEvents.DISCONNECT.register { _, _ -> EngineerClient.safely("betterpf party leave") { PartyTracker.onDisconnect() } }
 
         on<LevelEvent.Unload> {
             EngineerClient.safely("betterpf end") { session?.finish(); session = null }
@@ -175,6 +182,10 @@ object BetterPF : Module(
             if (overlay) return@onReceive
             val text = content.string.replace(CONTROL_CODES, "")
             val colored = legacyText(content)
+            // The answer to a /p list Better PF sent itself: read, and kept out of chat.
+            var hide = false
+            EngineerClient.safely("betterpf party") { hide = PartyTracker.onChat(text, colored) }
+            if (hide) it.cancel()
             if (hidePrivateChats && (UploadPacker.privateChat(text) || UploadPacker.partyChat(text))) return@onReceive
             val n = session?.serverTickCount
             EngineerClient.mc.execute { EngineerClient.safely("betterpf chat") { session?.onChat(text, colored, n) } }
@@ -514,6 +525,7 @@ object BetterPF : Module(
     override fun onDisable() {
         session?.finish()
         session = null
+        OnlineLink.close()
         super.onDisable()
     }
 }
