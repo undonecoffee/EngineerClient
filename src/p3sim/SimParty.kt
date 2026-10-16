@@ -274,6 +274,7 @@ object PartySettings {
         bool("realMoves") { P3Sim.realMovesS },
         bool("lava") { P3Sim.lavaS },
         bool("p3Only") { P3Sim.p3OnlyS },
+        bool("termsOnly") { P3Sim.termsOnlyS },
     ) }
 
     val PERSONAL: List<Opt> by lazy { listOf(
@@ -289,6 +290,7 @@ object PartySettings {
         bool("mageAll") { P3Sim.mageAllS },
         bool("infinite") { P3Sim.breakerInfiniteS },
         bool("terror") { P3Sim.terrorAtTermsS },
+        bool("blackCat") { P3Sim.blackCatS },
         bool("showTimes") { P3Sim.showTimesS },
     ) }
 
@@ -326,7 +328,7 @@ object PartyServer {
         SimNet.onServer("plan") { p, data -> plan(p, data) }
         SimNet.onServer("act") { p, data -> SimActions.run(p, data) }
         SimNet.onServer("hit") { p, data -> SimItems.serverHit(p, data) }
-        SimNet.onServer("left") { p, _ -> SimItems.serverLeftClick(p) }
+        SimNet.onServer("left") { p, data -> SimItems.serverLeftClick(p, data) }
         SimNet.onServer("drop") { p, data -> SimItems.serverDrop(p, data == "1") }
     }
 
@@ -560,8 +562,14 @@ object PartyClient {
                 EngineerClient.safely("p3sim splits") { com.engineerclient.splits.DungeonSplits.simStart(split, n) }
                 EngineerClient.safely("p3sim arrows device") { Fight.resetArrowsDevice() }
             }
-            "splitsStop" -> EngineerClient.safely("p3sim splits stop") { com.engineerclient.splits.DungeonSplits.simStop() }
+            "splitsStop" -> {
+                EngineerClient.safely("p3sim splits stop") { com.engineerclient.splits.DungeonSplits.simStop() }
+                // Stop and practice starts too: Odin's i4 solver forgets the blocks it marked hit.
+                EngineerClient.safely("p3sim arrows device") { Fight.resetArrowsDevice() }
+                EngineerClient.safely("p3sim tick timers stop") { com.engineerclient.misc.OdinTickTimers.stopAll() }
+            }
             "masksReset" -> EngineerClient.safely("p3sim masks") { com.engineerclient.misc.OdinMasksUsed.resetTimers() }
+            "arrowsReset" -> EngineerClient.safely("p3sim arrows device") { Fight.resetArrowsDevice() }
             "termStart" -> EngineerClient.safely("p3sim term info") { com.engineerclient.practice.TermInfo.simStart(n) }
             "termClear" -> EngineerClient.safely("p3sim term info") { com.engineerclient.practice.TermInfo.simClearTime() }
             "sectionTime" -> EngineerClient.safely("p3sim term info") { com.engineerclient.practice.TermInfo.simSectionTime(n) }
@@ -710,8 +718,8 @@ object SimActions {
                 Sim.tp(p, d("x") ?: return, d("y") ?: return, d("z") ?: return, d("yaw")?.toFloat(), d("pitch")?.toFloat())
             }
             "hotbarSave" -> Sim.chat("§8[§6P3 Sim Beta§8] " + HotbarLayout.save(p, b("p3")))
-            "hotbarReset" -> Sim.chat("§8[§6P3 Sim Beta§8] " + HotbarLayout.reset(b("p3")))
-            "resetItems" -> SimItems.giveHotbar(p, b("p3"))
+            "hotbarReset" -> { Sim.chat("§8[§6P3 Sim Beta§8] " + HotbarLayout.reset(b("p3"))); SimItems.giveHotbar(p, b("p3"), start = true) }
+            "resetItems" -> { HotbarLayout.dropLive(b("p3")); SimItems.giveHotbar(p, b("p3"), start = true) }
             // Practice runs on the host's own setup (their start, jobs, checkpoints, timer).
             "practiceCustom", "practicePreset" -> if (!Sim.isHost(p)) Sim.note("Practice is the host's: their start, jobs and checkpoints.")
                 else if (s("a") == "practiceCustom") Practice.startCustom() else Practice.startPreset(s("name") ?: return)
